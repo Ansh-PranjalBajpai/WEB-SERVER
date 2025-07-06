@@ -1,77 +1,78 @@
 #include <iostream>
-#include <cstring>      // memset, strerror
-#include <cerrno>       // errno
-#include <unistd.h>     // close
+#include <cstdlib>
+#include <string>
+#include <cstring>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <netdb.h>
+#include<bits/stdc++.h>
+#include <thread>
+#include "client_handler.h"
+using namespace std;
 
-int main() {
-    // ----- Phase 1: Setup -----
-    int listenSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (listenSocket < 0) {
-        std::cerr << "socket() error: " << std::strerror(errno) << "\n";
-        return 1;
-    }
 
-    // Let us reuse the address immediately after exit
-    int opt = 1;
-    setsockopt(listenSocket,
-               SOL_SOCKET, SO_REUSEADDR,
-               &opt, sizeof(opt));
+int main(int argc, char **argv)
+{
+  cout << unitbuf;
+  cerr << unitbuf;
 
-    sockaddr_in serverAddr{};
-    serverAddr.sin_family      = AF_INET;        // IPv4
-    serverAddr.sin_addr.s_addr = INADDR_ANY;     // Listen on all IPs
-    serverAddr.sin_port        = htons(4221);    // Port 4221
-
-    if (bind(listenSocket,
-             (sockaddr*)&serverAddr,
-             sizeof(serverAddr)) < 0)
+  string directory;
+  for (int i=1;i<argc;i++)
+  {
+    if (strcmp(argv[i],"--directory")==0&&i+1<argc)
     {
-        std::cerr << "bind() error: " << std::strerror(errno) << "\n";
-        close(listenSocket);
-        return 1;
+      directory  = argv[i+1];
+      break;
     }
+  }
 
-    if (listen(listenSocket, /*backlog=*/5) < 0) {
-        std::cerr << "listen() error: " << std::strerror(errno) << "\n";
-        close(listenSocket);
-        return 1;
-    }
+  int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (server_fd < 0)
+  {
+    cerr << "Failed to create server socket\n";
+    return 1;
+  }
 
-    std::cout << "Server is up on port 4221, waiting for one client...\n";
+  ssize_t reuse = 1;
+  if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
+  {
+    cerr << "setsockopt failed\n";
+    return 1;
+  }
 
-    // ----- Phase 2: Accept one client -----
-    sockaddr_in clientAddr{};
-    socklen_t clientLen = sizeof(clientAddr);
+  struct sockaddr_in server_addr;
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_addr.s_addr = INADDR_ANY;
+  server_addr.sin_port = htons(4221);
 
-    int clientSocket = accept(
-        listenSocket,
-        (sockaddr*)&clientAddr,
-        &clientLen
-    );
-    if (clientSocket < 0) {
-        std::cerr << "accept() error: " << std::strerror(errno) << "\n";
-        close(listenSocket);
-        return 1;
-    }
-    std::cout << "Client connected!\n";
+  if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) != 0)
+  {
+    cerr << "Failed to bind to port 4221\n";
+    return 1;
+  }
 
-    // ----- Phase 3: Send HTTP/1.1 200 OK -----
-    const char response[] = "HTTP/1.1 200 OK\r\n\r\n";
-    ssize_t bytesSent = send(
-        clientSocket,
-        response,
-        std::strlen(response),
-        0
-    );
-    if (bytesSent < 0) {
-        std::cerr << "send() error: " << std::strerror(errno) << "\n";
-    }
+  int connection_backlog = 5;
+  if (listen(server_fd, connection_backlog) != 0)
+  {
+    cerr << "listen failed\n";
+    return 1;
+  }
 
-    // ----- Cleanup -----
-    close(clientSocket);
-    close(listenSocket);
-    return 0;
+  while(true)
+  {
+    struct sockaddr_in client_addr;
+    int client_addr_len = sizeof(client_addr);
+
+    cout << "Waiting for a client to connect...\n";
+
+    int client = accept(server_fd, (struct sockaddr *)&client_addr, (socklen_t *)&client_addr_len);
+     thread(handleClient, client,directory).detach();
+  }
+  
+
+  close(server_fd);
+
+  return 0;
 }
